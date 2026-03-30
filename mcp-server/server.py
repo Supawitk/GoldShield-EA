@@ -137,5 +137,84 @@ def run_sql(query: str) -> str:
     return json.dumps(rows[:100], indent=2)
 
 
+@mcp.tool()
+def find_similar_conditions(hours_ago: int = 0, top_k: int = 5) -> str:
+    """
+    Find historical moments where market conditions were most similar
+    to a given point in time, using pgvector cosine similarity.
+    If hours_ago=0, compares against the most recent embedding.
+    """
+    if hours_ago == 0:
+        anchor_sql = """
+            SELECT embedding FROM market_embeddings
+            WHERE symbol = 'XAUUSD'
+            ORDER BY time DESC LIMIT 1
+        """
+        anchor = _query(anchor_sql)
+    else:
+        anchor_sql = """
+            SELECT embedding FROM market_embeddings
+            WHERE symbol = 'XAUUSD'
+              AND time <= NOW() - INTERVAL '1 hour' * %s
+            ORDER BY time DESC LIMIT 1
+        """
+        anchor = _query(anchor_sql, (hours_ago,))
+
+    if not anchor:
+        return json.dumps({"message": "No embeddings found. Generate them first."})
+
+    rows = _query("""
+        SELECT time, symbol, timeframe, label,
+               1 - (embedding <=> %s::vector) AS similarity
+        FROM market_embeddings
+        WHERE symbol = 'XAUUSD'
+        ORDER BY embedding <=> %s::vector
+        LIMIT %s
+    """, (anchor[0]["embedding"], anchor[0]["embedding"], top_k + 1))
+
+    # Skip the anchor itself if it appears
+    results = [r for r in rows if r.get("similarity", 1) < 0.9999][:top_k]
+    return json.dumps(results, indent=2)
+
+
+@mcp.tool()
+def export_csv(table: str = "trades", limit: int = 500) -> str:
+    """
+    Export a table as CSV and save to the exports/ directory.
+    Supported tables: trades, candles, parameter_sets.
+    Returns the file path of the generated CSV.
+    """
+    allowed = {
+        "trades": "SELECT * FROM trades ORDER BY time DESC LIMIT %s",
+        "candles": "SELECT * FROM candles WHERE symbol='XAUUSD' AND timeframe='H1' ORDER BY time DESC LIMIT %s",
+        "parameter_sets": "SELECT * FROM parameter_sets ORDER BY created_at DESC LIMIT %s",
+    }
+
+    if table not in allowed:
+        return json.dumps({"error": f"Table must be one of: {', '.join(allowed)}"})
+
+    import csv as csv_mod
+    rows = _query(allowed[table], (limit,))
+    if not rows:
+        return json.dumps({"message": f"No data in {table}."})
+
+    export_dir = os.path.join(os.path.dirname(__file__), "..", "exports")
+    os.makedirs(export_dir, exist_ok=True)
+
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filepath = os.path.join(export_dir, f"{table}_{ts}.csv")
+
+    with open(filepath, "w", newline="") as f:
+        writer = csv_mod.DictWriter(f, fieldnames=rows[0].keys())
+        writer.writeheader()
+        writer.writerows(rows)
+
+    return json.dumps({
+        "file": os.path.abspath(filepath),
+        "rows": len(rows),
+        "table": table,
+    }, indent=2)
+
+
 if __name__ == "__main__":
     mcp.run(transport="stdio")
