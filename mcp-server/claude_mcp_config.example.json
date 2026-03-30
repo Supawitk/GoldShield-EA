@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "goldshield": {
+      "command": "python",
+      "args": ["mcp-server/server.py"],
+      "cwd": "/path/to/EA-v1.0"
+    }
+  }
+}
