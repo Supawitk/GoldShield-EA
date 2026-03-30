@@ -35,7 +35,7 @@ GoldShield EA is a safety-first automated trading system for **XAUUSD (Gold)** o
 > **The EA trades. The database remembers. You bring your own AI.**
 
 <p align="center">
-  <img src="assets/architecture.png" alt="System Architecture" width="100%"/>
+  <img src="assets/architecture.png?raw=true" alt="System Architecture" width="100%"/>
 </p>
 
 ---
@@ -90,7 +90,7 @@ GoldShield EA is a safety-first automated trading system for **XAUUSD (Gold)** o
 ## Architecture
 
 <p align="center">
-  <img src="assets/dataflow.png" alt="Data Flow Pipeline" width="70%"/>
+  <img src="assets/dataflow.png?raw=true" alt="Data Flow Pipeline" width="70%"/>
 </p>
 
 ---
