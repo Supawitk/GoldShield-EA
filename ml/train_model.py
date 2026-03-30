@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
 Train ML models on XAUUSD candle data from the GoldShield database.
-Supports multiple sklearn models and exports results back to DB.
 
 Usage:
-    python ml/train_model.py                              # Random Forest, default
+    python ml/train_model.py                              # Random Forest
     python ml/train_model.py --model gradient_boosting    # Gradient Boosting
     python ml/train_model.py --model logistic             # Logistic Regression
     python ml/train_model.py --lookback 200 --split 75    # custom params
+    python ml/train_model.py --export-r                   # export CSV for R
 """
 
 import argparse
@@ -17,19 +17,9 @@ import sys
 
 import numpy as np
 import pandas as pd
-import psycopg2
-import psycopg2.extras
-from dotenv import load_dotenv
 
-load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
-
-DB_DSN = (
-    f"host={os.getenv('DB_HOST', 'localhost')} "
-    f"port={os.getenv('DB_PORT', '5432')} "
-    f"dbname={os.getenv('DB_NAME', 'goldshield')} "
-    f"user={os.getenv('DB_USER', 'goldshield')} "
-    f"password={os.getenv('DB_PASSWORD', 'goldshield_dev')}"
-)
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+from db.connection import query_rows
 
 MODELS = {
     "random_forest":      "RandomForestClassifier",
@@ -41,14 +31,13 @@ MODELS = {
 
 
 def load_candles(lookback: int) -> pd.DataFrame:
-    conn = psycopg2.connect(DB_DSN)
-    df = pd.read_sql("""
+    rows = query_rows("""
         SELECT time, open, high, low, close, volume
         FROM candles
         WHERE symbol = 'XAUUSD' AND timeframe = 'H1'
         ORDER BY time ASC
-    """, conn)
-    conn.close()
+    """)
+    df = pd.DataFrame(rows)
 
     if len(df) < lookback:
         raise SystemExit(
@@ -59,24 +48,20 @@ def load_candles(lookback: int) -> pd.DataFrame:
 
 
 def engineer_features(df: pd.DataFrame) -> pd.DataFrame:
-    """Create technical indicator features from OHLCV data."""
     df = df.copy()
     df["return"] = df["close"].pct_change()
     df["target"] = (df["return"].shift(-1) > 0).astype(int)
 
-    # EMAs
     df["ema_50"] = df["close"].ewm(span=50, adjust=False).mean()
     df["ema_200"] = df["close"].ewm(span=200, adjust=False).mean()
     df["ema_ratio"] = df["ema_50"] / df["ema_200"]
 
-    # RSI
     delta = df["close"].diff()
     gain = delta.where(delta > 0, 0).rolling(14).mean()
     loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
     rs = gain / loss.replace(0, np.nan)
     df["rsi"] = 100 - (100 / (1 + rs))
 
-    # ATR
     df["tr"] = np.maximum(
         df["high"] - df["low"],
         np.maximum(
@@ -86,16 +71,13 @@ def engineer_features(df: pd.DataFrame) -> pd.DataFrame:
     )
     df["atr"] = df["tr"].rolling(14).mean()
 
-    # Candle features
     df["body"] = abs(df["close"] - df["open"])
     df["upper_wick"] = df["high"] - df[["open", "close"]].max(axis=1)
     df["lower_wick"] = df[["open", "close"]].min(axis=1) - df["low"]
 
-    # Time features
     df["hour"] = pd.to_datetime(df["time"]).dt.hour
     df["day_of_week"] = pd.to_datetime(df["time"]).dt.dayofweek
 
-    # Momentum
     df["momentum_5"] = df["close"].pct_change(5)
     df["momentum_10"] = df["close"].pct_change(10)
 
@@ -103,7 +85,6 @@ def engineer_features(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def train(model_name: str, df: pd.DataFrame, split_pct: int):
-    """Train and evaluate the selected model."""
     feature_cols = [
         "ema_ratio", "rsi", "atr", "body", "upper_wick", "lower_wick",
         "hour", "day_of_week", "momentum_5", "momentum_10", "volume",
@@ -116,7 +97,13 @@ def train(model_name: str, df: pd.DataFrame, split_pct: int):
     X_train, X_test = X[:split], X[split:]
     y_train, y_test = y[:split], y[split:]
 
-    # Import the right model
+    needs_scaling = model_name in ("logistic", "svm", "knn")
+    if needs_scaling:
+        from sklearn.preprocessing import StandardScaler
+        scaler = StandardScaler()
+        X_train = scaler.fit_transform(X_train)
+        X_test = scaler.transform(X_test)
+
     if model_name == "random_forest":
         from sklearn.ensemble import RandomForestClassifier
         clf = RandomForestClassifier(n_estimators=100, random_state=42)
@@ -125,24 +112,12 @@ def train(model_name: str, df: pd.DataFrame, split_pct: int):
         clf = GradientBoostingClassifier(n_estimators=100, random_state=42)
     elif model_name == "logistic":
         from sklearn.linear_model import LogisticRegression
-        from sklearn.preprocessing import StandardScaler
-        scaler = StandardScaler()
-        X_train = scaler.fit_transform(X_train)
-        X_test = scaler.transform(X_test)
         clf = LogisticRegression(max_iter=1000, random_state=42)
     elif model_name == "svm":
         from sklearn.svm import SVC
-        from sklearn.preprocessing import StandardScaler
-        scaler = StandardScaler()
-        X_train = scaler.fit_transform(X_train)
-        X_test = scaler.transform(X_test)
         clf = SVC(kernel="rbf", random_state=42)
     elif model_name == "knn":
         from sklearn.neighbors import KNeighborsClassifier
-        from sklearn.preprocessing import StandardScaler
-        scaler = StandardScaler()
-        X_train = scaler.fit_transform(X_train)
-        X_test = scaler.transform(X_test)
         clf = KNeighborsClassifier(n_neighbors=5)
     else:
         raise SystemExit(f"Unknown model: {model_name}")
@@ -150,8 +125,8 @@ def train(model_name: str, df: pd.DataFrame, split_pct: int):
     clf.fit(X_train, y_train)
 
     from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
-
     preds = clf.predict(X_test)
+
     results = {
         "model": model_name,
         "accuracy": round(accuracy_score(y_test, preds), 4),
@@ -163,7 +138,6 @@ def train(model_name: str, df: pd.DataFrame, split_pct: int):
         "features": feature_cols,
     }
 
-    # Feature importance (if available)
     if hasattr(clf, "feature_importances_"):
         imp = dict(zip(feature_cols, [round(float(v), 4) for v in clf.feature_importances_]))
         results["feature_importance"] = dict(sorted(imp.items(), key=lambda x: -x[1]))
@@ -172,7 +146,6 @@ def train(model_name: str, df: pd.DataFrame, split_pct: int):
 
 
 def export_for_r(df: pd.DataFrame):
-    """Export candle data as CSV for R scripts."""
     out = os.path.join(os.path.dirname(__file__), "candles_export.csv")
     df.to_csv(out, index=False)
     print(f"Exported {len(df)} rows to {out} (for R scripts)")
@@ -181,14 +154,10 @@ def export_for_r(df: pd.DataFrame):
 def main():
     parser = argparse.ArgumentParser(description="Train ML model on XAUUSD data")
     parser.add_argument("--model", "-m", default="random_forest",
-                        choices=list(MODELS.keys()),
-                        help="Model to train")
-    parser.add_argument("--lookback", type=int, default=200,
-                        help="Number of bars to use")
-    parser.add_argument("--split", type=int, default=80,
-                        help="Train/test split percentage")
-    parser.add_argument("--export-r", action="store_true",
-                        help="Also export CSV for R scripts")
+                        choices=list(MODELS.keys()))
+    parser.add_argument("--lookback", type=int, default=200)
+    parser.add_argument("--split", type=int, default=80)
+    parser.add_argument("--export-r", action="store_true")
     args = parser.parse_args()
 
     print(f"Loading candles (lookback={args.lookback}) ...")
@@ -219,7 +188,6 @@ def main():
             bar = "#" * int(imp * 50)
             print(f"    {feat:18s} {imp:.4f}  {bar}")
 
-    # Save results
     out_path = os.path.join(os.path.dirname(__file__), "results.json")
     with open(out_path, "w") as f:
         json.dump(results, f, indent=2)

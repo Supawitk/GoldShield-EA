@@ -11,21 +11,11 @@ Usage:
 import argparse
 import csv
 import os
+import sys
 from datetime import datetime
 
-import psycopg2
-import psycopg2.extras
-from dotenv import load_dotenv
-
-load_dotenv()
-
-DB_DSN = (
-    f"host={os.getenv('DB_HOST', 'localhost')} "
-    f"port={os.getenv('DB_PORT', '5432')} "
-    f"dbname={os.getenv('DB_NAME', 'goldshield')} "
-    f"user={os.getenv('DB_USER', 'goldshield')} "
-    f"password={os.getenv('DB_PASSWORD', 'goldshield_dev')}"
-)
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+from db.connection import query_rows
 
 TABLES = {
     "trades":         "SELECT * FROM trades ORDER BY time DESC LIMIT %s",
@@ -35,13 +25,7 @@ TABLES = {
 
 
 def export_table(table: str, limit: int, out_dir: str) -> str:
-    conn = psycopg2.connect(DB_DSN)
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute(TABLES[table], (limit,))
-    rows = [dict(r) for r in cur.fetchall()]
-    cur.close()
-    conn.close()
-
+    rows = query_rows(TABLES[table], (limit,))
     if not rows:
         print(f"  [{table}] No data.")
         return ""
@@ -62,10 +46,8 @@ def export_table(table: str, limit: int, out_dir: str) -> str:
 
 def main():
     parser = argparse.ArgumentParser(description="Export DB tables to CSV")
-    parser.add_argument("--table", "-t", choices=list(TABLES.keys()),
-                        help="Table to export (default: all)")
-    parser.add_argument("--limit", "-l", type=int, default=5000,
-                        help="Max rows per table (default: 5000)")
+    parser.add_argument("--table", "-t", choices=list(TABLES.keys()))
+    parser.add_argument("--limit", "-l", type=int, default=5000)
     args = parser.parse_args()
 
     out_dir = os.path.join(os.path.dirname(__file__), "..", "exports")

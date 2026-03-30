@@ -146,20 +146,78 @@ Or use the `export_csv` MCP tool to let AI export for you.
 
 ---
 
+## Trade Logging API
+
+The EA logs trades to PostgreSQL in real-time via HTTP. Start the API, then the EA sends trade open/close events automatically.
+
+```bash
+python scripts/trade_api.py                        # default port 5555
+python scripts/trade_api.py --port 8080            # custom port
+```
+
+In MT5: go to **Tools > Options > Expert Advisors** and add `http://localhost:5555` to the allowed URLs list.
+
+---
+
+## Vector Embeddings
+
+Generate market-condition embeddings from candle data for pgvector similarity search:
+
+```bash
+python scripts/generate_embeddings.py              # 50-bar windows, H1
+python scripts/generate_embeddings.py --window 100 # 100-bar windows
+python scripts/generate_embeddings.py --step 5     # denser coverage
+```
+
+Then use the `find_similar_conditions` MCP tool to find historically similar market states.
+
+---
+
 ## Project Structure
 
 ```
 GoldShield-EA/
-├── GoldShield_EA.mq5            # MT5 Expert Advisor
+├── GoldShield_EA.mq5            # MT5 EA (with WebRequest trade logging)
 ├── docker-compose.yml            # One-command DB setup
-├── db/migrations/                # SQL schema (4 files)
-├── scripts/                      # Data collection + CSV export
+├── db/
+│   ├── connection.py             # Shared DB utilities (used by all scripts)
+│   └── migrations/               # SQL schema (4 files)
+├── scripts/
+│   ├── collect_data.py           # Multi-TF candle fetcher
+│   ├── export_csv.py             # CSV export
+│   ├── generate_embeddings.py    # pgvector embedding generator
+│   ├── trade_api.py              # HTTP trade logging server
+│   └── backtest_logger.py        # MT5 report parser
 ├── dashboard/app.py              # Streamlit UI (6 pages)
 ├── ml/                           # sklearn + R models
 ├── mcp-server/server.py          # MCP server (8 tools)
 ├── snapshots/                    # Point-in-time state captures
 └── exports/                      # CSV output
 ```
+
+---
+
+## Changelog
+
+### v1.1.0
+- **Refactor**: Shared `db/connection.py` module — all scripts use one DB utility with context managers (was duplicated 6 times)
+- **New**: Trade logging HTTP API (`scripts/trade_api.py`) — receives trade events from EA
+- **New**: MQL5 WebRequest integration — EA auto-logs trades to PostgreSQL on open/close
+- **New**: Embedding generator (`scripts/generate_embeddings.py`) — populates `market_embeddings` table for pgvector similarity search
+- **New**: Snapshot restore — dashboard can now load saved snapshots back as active parameter sets
+- **Fix**: All DB connections use context managers (no more connection leaks)
+
+### v1.1
+- Dashboard UI with 6 pages (params, charts, trades, ML, AI, snapshots)
+- Multi-timeframe data collection (M1 to W1)
+- ML models: sklearn (5 models) + R (ARIMA, ETS, RF)
+- AI Assistant with bring-your-own-key LLM support
+- MCP server with vector similarity search + CSV export
+
+### v1.0
+- Initial release: GoldShield EA for XAUUSD H1
+- PostgreSQL + TimescaleDB + pgvector via Docker Compose
+- Data collection from Twelve Data API
 
 ---
 

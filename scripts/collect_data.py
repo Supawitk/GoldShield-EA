@@ -13,21 +13,12 @@ Usage:
 
 import argparse
 import os
-from datetime import datetime, timedelta, timezone
+import sys
 
-import psycopg2
 import requests
-from dotenv import load_dotenv
 
-load_dotenv()
-
-DB_DSN = (
-    f"host={os.getenv('DB_HOST', 'localhost')} "
-    f"port={os.getenv('DB_PORT', '5432')} "
-    f"dbname={os.getenv('DB_NAME', 'goldshield')} "
-    f"user={os.getenv('DB_USER', 'goldshield')} "
-    f"password={os.getenv('DB_PASSWORD', 'goldshield_dev')}"
-)
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+from db.connection import db_cursor
 
 API_KEY = os.getenv("TWELVE_DATA_API_KEY", "")
 SYMBOL = "XAU/USD"
@@ -45,64 +36,44 @@ TIMEFRAMES = {
 
 
 def fetch_candles(interval: str, output_size: int = 500) -> list[dict]:
-    """Fetch candles from Twelve Data API."""
     if not API_KEY:
         raise SystemExit(
             "TWELVE_DATA_API_KEY not set. "
             "Get a free key at https://twelvedata.com and add it to .env"
         )
 
-    url = "https://api.twelvedata.com/time_series"
-    params = {
-        "symbol": SYMBOL,
-        "interval": interval,
+    resp = requests.get("https://api.twelvedata.com/time_series", params={
+        "symbol": SYMBOL, "interval": interval,
         "outputsize": min(output_size, 5000),
-        "apikey": API_KEY,
-        "format": "JSON",
-    }
-
-    resp = requests.get(url, params=params, timeout=30)
+        "apikey": API_KEY, "format": "JSON",
+    }, timeout=30)
     resp.raise_for_status()
     data = resp.json()
 
     if "values" not in data:
         raise SystemExit(f"API error: {data.get('message', data)}")
-
     return data["values"]
 
 
 def store_candles(candles: list[dict], timeframe_label: str) -> int:
-    """Insert candles into the database (skip duplicates by time+timeframe)."""
     sql = """
         INSERT INTO candles (time, open, high, low, close, volume, symbol, timeframe)
         VALUES (%s, %s, %s, %s, %s, %s, 'XAUUSD', %s)
-        ON CONFLICT DO NOTHING
+        ON CONFLICT (time, symbol, timeframe) DO NOTHING
     """
-
-    conn = psycopg2.connect(DB_DSN)
-    cur = conn.cursor()
-
     rows = 0
-    for c in candles:
-        cur.execute(sql, (
-            c["datetime"],
-            float(c["open"]),
-            float(c["high"]),
-            float(c["low"]),
-            float(c["close"]),
-            float(c.get("volume", 0)),
-            timeframe_label,
-        ))
-        rows += cur.rowcount
-
-    conn.commit()
-    cur.close()
-    conn.close()
+    with db_cursor() as cur:
+        for c in candles:
+            cur.execute(sql, (
+                c["datetime"], float(c["open"]), float(c["high"]),
+                float(c["low"]), float(c["close"]),
+                float(c.get("volume", 0)), timeframe_label,
+            ))
+            rows += cur.rowcount
     return rows
 
 
 def collect_timeframe(tf_key: str, days: int):
-    """Collect a single timeframe."""
     tf = TIMEFRAMES[tf_key]
     output_size = max(int(days * tf["bars_per_day"]), 500) if days else 500
     output_size = min(output_size, 5000)
@@ -116,23 +87,18 @@ def collect_timeframe(tf_key: str, days: int):
 
 def main():
     parser = argparse.ArgumentParser(description="Collect XAUUSD candles")
-    parser.add_argument("--days", type=int, default=0,
-                        help="Fetch this many days of history")
+    parser.add_argument("--days", type=int, default=0)
     parser.add_argument("--timeframe", "-tf", default="1h",
-                        choices=list(TIMEFRAMES.keys()),
-                        help="Timeframe to fetch (default: 1h)")
-    parser.add_argument("--all-timeframes", action="store_true",
-                        help="Fetch all available timeframes")
+                        choices=list(TIMEFRAMES.keys()))
+    parser.add_argument("--all-timeframes", action="store_true")
     args = parser.parse_args()
 
     if args.all_timeframes:
-        print(f"Fetching all timeframes from Twelve Data ...\n")
-        total = 0
-        for tf_key in TIMEFRAMES:
-            total += collect_timeframe(tf_key, args.days)
-        print(f"\nDone — {total} total new rows inserted across all timeframes.")
+        print("Fetching all timeframes ...\n")
+        total = sum(collect_timeframe(k, args.days) for k in TIMEFRAMES)
+        print(f"\nDone — {total} total new rows.")
     else:
-        print(f"Fetching {args.timeframe} candles from Twelve Data ...\n")
+        print(f"Fetching {args.timeframe} candles ...\n")
         collect_timeframe(args.timeframe, args.days)
         print("\nDone.")
 

@@ -4,7 +4,7 @@
 //| EMA Cross + RSI Filter + ATR Dynamic Risk Management             |
 //+------------------------------------------------------------------+
 #property copyright "GoldShield EA"
-#property version   "1.00"
+#property version   "1.10"
 #property description "Safety-first XAUUSD EA: EMA crossover entries, RSI filter, ATR-based SL/TP/trailing stop"
 #property strict
 
@@ -17,6 +17,9 @@
 //--- General Settings
 input ulong  MagicNumber    = 20260330;     // Magic Number
 input string TradeComment   = "GoldShield"; // Trade Comment
+
+//--- Trade Logging API (set to "" to disable)
+input string TradeAPI_URL   = "http://localhost:5555";  // Trade API URL
 
 //--- Indicator Settings
 input int    EMA_Fast_Period = 50;          // Fast EMA Period
@@ -315,6 +318,7 @@ void ExecuteBuy(double slDistance, double tpDistance)
       {
          lastTradeBarTime = iTime(_Symbol, PERIOD_H1, 0);
          Print("BUY executed | Lots: ", lots, " | Price: ", ask, " | SL: ", sl, " | TP: ", tp);
+         LogTradeOpen("BUY", lots, ask, sl, tp);
       }
       else
       {
@@ -352,6 +356,7 @@ void ExecuteSell(double slDistance, double tpDistance)
       {
          lastTradeBarTime = iTime(_Symbol, PERIOD_H1, 0);
          Print("SELL executed | Lots: ", lots, " | Price: ", bid, " | SL: ", sl, " | TP: ", tp);
+         LogTradeOpen("SELL", lots, bid, sl, tp);
       }
       else
       {
@@ -622,5 +627,73 @@ void RestoreStateFromPositions()
 
    if(lastTradeBarTime > 0)
       Print("Restored state: last trade bar time = ", TimeToString(lastTradeBarTime));
+}
+
+//+------------------------------------------------------------------+
+//| Trade Logging via HTTP API                                         |
+//+------------------------------------------------------------------+
+void LogTradeOpen(string direction, double lots, double price, double sl, double tp)
+{
+   if(StringLen(TradeAPI_URL) == 0) return;
+
+   string url = TradeAPI_URL + "/trade/open";
+   string headers = "Content-Type: application/json\r\n";
+
+   string body = "{";
+   body += "\"symbol\":\"" + _Symbol + "\",";
+   body += "\"direction\":\"" + direction + "\",";
+   body += "\"lot_size\":" + DoubleToString(lots, 2) + ",";
+   body += "\"entry_price\":" + DoubleToString(price, _Digits) + ",";
+   body += "\"stop_loss\":" + DoubleToString(sl, _Digits) + ",";
+   body += "\"take_profit\":" + DoubleToString(tp, _Digits) + ",";
+   body += "\"notes\":\"" + TradeComment + "\"";
+   body += "}";
+
+   char  postData[];
+   char  result[];
+   string resultHeaders;
+
+   StringToCharArray(body, postData, 0, WHOLE_ARRAY, CP_UTF8);
+   // Remove null terminator appended by StringToCharArray
+   ArrayResize(postData, ArraySize(postData) - 1);
+
+   int res = WebRequest("POST", url, headers, 3000, postData, result, resultHeaders);
+
+   if(res == -1)
+      Print("TradeAPI: WebRequest failed (error ", GetLastError(), "). Add ", TradeAPI_URL, " to Tools > Options > Expert Advisors > Allowed URLs");
+   else if(res == 201)
+      Print("TradeAPI: Trade logged successfully");
+   else
+      Print("TradeAPI: Unexpected response code ", res);
+}
+
+void LogTradeClose(ulong ticket, double exitPrice, string reason)
+{
+   if(StringLen(TradeAPI_URL) == 0) return;
+
+   string url = TradeAPI_URL + "/trade/close";
+   string headers = "Content-Type: application/json\r\n";
+
+   string body = "{";
+   body += "\"trade_id\":" + IntegerToString((long)ticket) + ",";
+   body += "\"exit_price\":" + DoubleToString(exitPrice, _Digits) + ",";
+   body += "\"exit_reason\":\"" + reason + "\"";
+   body += "}";
+
+   char  postData[];
+   char  result[];
+   string resultHeaders;
+
+   StringToCharArray(body, postData, 0, WHOLE_ARRAY, CP_UTF8);
+   ArrayResize(postData, ArraySize(postData) - 1);
+
+   int res = WebRequest("POST", url, headers, 3000, postData, result, resultHeaders);
+
+   if(res == -1)
+      Print("TradeAPI: Close log failed (error ", GetLastError(), ")");
+   else if(res == 200)
+      Print("TradeAPI: Trade close logged");
+   else
+      Print("TradeAPI: Unexpected response code ", res);
 }
 //+------------------------------------------------------------------+
