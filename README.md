@@ -43,14 +43,14 @@
 
 **Trading Engine** — EMA crossover + RSI filter, ATR-based SL/TP/trailing, daily loss limit, spread guard, cooldown, risk-based sizing
 
-**Data Pipeline** — PostgreSQL + TimescaleDB + pgvector, 8 timeframes (M1–W1), trade journal, vector embeddings
+**Data Pipeline** — PostgreSQL + TimescaleDB + pgvector, 8 timeframes (M1--W1), trade journal, vector embeddings
 
 </td>
 <td width="50%">
 
-**Dashboard** — Streamlit UI with parameter editor, candlestick charts, P&L curves, ML training, snapshots
+**Dashboard** — Streamlit UI with parameter editor, candlestick charts, P&L curves, ML training, snapshots with restore
 
-**AI & ML** — MCP server (8 tools), bring-your-own LLM, sklearn (5 models), R (ARIMA/ETS/RF), CSV export, vector similarity search
+**AI & ML** — MCP server (8 tools), bring-your-own LLM, sklearn (5 models), R (ARIMA/ETS/RF), CSV export, pgvector similarity search
 
 </td>
 </tr>
@@ -73,7 +73,7 @@ docker compose up -d              # PostgreSQL + TimescaleDB + pgvector
 ```bash
 pip install -r scripts/requirements.txt
 python scripts/collect_data.py                    # fetch H1 candles
-python scripts/collect_data.py --all-timeframes   # fetch all 8 timeframes
+python scripts/collect_data.py --all-timeframes   # all 8 timeframes
 ```
 
 ```bash
@@ -81,9 +81,16 @@ pip install -r dashboard/requirements.txt
 streamlit run dashboard/app.py                    # launch UI
 ```
 
+```bash
+python scripts/trade_api.py                       # start trade logging API
+python scripts/generate_embeddings.py             # generate pgvector embeddings
+```
+
+> **Full command reference with all flags and options:** **[docs/COMMANDS.md](docs/COMMANDS.md)**
+
 ---
 
-## MCP Server + AI
+## MCP Server
 
 ```bash
 pip install -r mcp-server/requirements.txt
@@ -103,73 +110,11 @@ Add to Claude Desktop config (`~/Library/Application Support/Claude/claude_deskt
 }
 ```
 
-| Tool | Description |
-|------|-------------|
-| `get_recent_trades` | Latest trades from journal |
-| `get_trade_stats` | Win-rate, profit factor, P&L |
-| `get_candles` | XAUUSD OHLCV data |
-| `compare_parameter_sets` | Rank configs by performance |
-| `suggest_parameters` | Best-performing config |
-| `find_similar_conditions` | pgvector similarity search |
-| `export_csv` | Export trades/candles/params to CSV |
-| `run_sql` | Read-only SQL queries |
+8 tools available: `get_recent_trades` `get_trade_stats` `get_candles` `compare_parameter_sets` `suggest_parameters` `find_similar_conditions` `export_csv` `run_sql`
 
 **Bring your own LLM** via the Dashboard AI page — supports Claude, OpenAI, Gemini, Ollama, or any OpenAI-compatible endpoint. No keys stored.
 
----
-
-## ML Models
-
-```bash
-pip install -r ml/requirements.txt
-python ml/train_model.py                           # Random Forest
-python ml/train_model.py -m gradient_boosting      # Gradient Boosting
-python ml/train_model.py -m svm                    # SVM
-python ml/train_model.py -m knn                    # KNN
-python ml/train_model.py -m logistic               # Logistic Regression
-python ml/train_model.py --export-r                # export CSV for R
-Rscript ml/train.R                                 # R: auto.arima
-Rscript ml/train.R randomForest                    # R: random forest
-```
-
----
-
-## Export Data
-
-```bash
-python scripts/export_csv.py                       # export all tables
-python scripts/export_csv.py --table trades        # trades only
-python scripts/export_csv.py --table candles -l 1000
-```
-
-Or use the `export_csv` MCP tool to let AI export for you.
-
----
-
-## Trade Logging API
-
-The EA logs trades to PostgreSQL in real-time via HTTP. Start the API, then the EA sends trade open/close events automatically.
-
-```bash
-python scripts/trade_api.py                        # default port 5555
-python scripts/trade_api.py --port 8080            # custom port
-```
-
-In MT5: go to **Tools > Options > Expert Advisors** and add `http://localhost:5555` to the allowed URLs list.
-
----
-
-## Vector Embeddings
-
-Generate market-condition embeddings from candle data for pgvector similarity search:
-
-```bash
-python scripts/generate_embeddings.py              # 50-bar windows, H1
-python scripts/generate_embeddings.py --window 100 # 100-bar windows
-python scripts/generate_embeddings.py --step 5     # denser coverage
-```
-
-Then use the `find_similar_conditions` MCP tool to find historically similar market states.
+> See [docs/COMMANDS.md](docs/COMMANDS.md) for full tool parameters and API endpoint docs.
 
 ---
 
@@ -184,13 +129,14 @@ GoldShield-EA/
 │   └── migrations/               # SQL schema (4 files)
 ├── scripts/
 │   ├── collect_data.py           # Multi-TF candle fetcher
-│   ├── export_csv.py             # CSV export
-│   ├── generate_embeddings.py    # pgvector embedding generator
 │   ├── trade_api.py              # HTTP trade logging server
+│   ├── generate_embeddings.py    # pgvector embedding generator
+│   ├── export_csv.py             # CSV export
 │   └── backtest_logger.py        # MT5 report parser
 ├── dashboard/app.py              # Streamlit UI (6 pages)
 ├── ml/                           # sklearn + R models
 ├── mcp-server/server.py          # MCP server (8 tools)
+├── docs/COMMANDS.md              # Full CLI & API reference
 ├── snapshots/                    # Point-in-time state captures
 └── exports/                      # CSV output
 ```
@@ -200,24 +146,19 @@ GoldShield-EA/
 ## Changelog
 
 ### v1.1.0
-- **Refactor**: Shared `db/connection.py` module — all scripts use one DB utility with context managers (was duplicated 6 times)
-- **New**: Trade logging HTTP API (`scripts/trade_api.py`) — receives trade events from EA
-- **New**: MQL5 WebRequest integration — EA auto-logs trades to PostgreSQL on open/close
-- **New**: Embedding generator (`scripts/generate_embeddings.py`) — populates `market_embeddings` table for pgvector similarity search
-- **New**: Snapshot restore — dashboard can now load saved snapshots back as active parameter sets
-- **Fix**: All DB connections use context managers (no more connection leaks)
+- Shared `db/connection.py` — single DB utility with context managers (was duplicated 6x)
+- Trade logging HTTP API + MQL5 WebRequest integration (EA auto-logs to PostgreSQL)
+- Embedding generator for pgvector similarity search
+- Snapshot restore in dashboard
+- Full command reference moved to [docs/COMMANDS.md](docs/COMMANDS.md)
 
 ### v1.1
-- Dashboard UI with 6 pages (params, charts, trades, ML, AI, snapshots)
-- Multi-timeframe data collection (M1 to W1)
-- ML models: sklearn (5 models) + R (ARIMA, ETS, RF)
-- AI Assistant with bring-your-own-key LLM support
-- MCP server with vector similarity search + CSV export
+- Dashboard UI (6 pages), multi-timeframe collection, ML models (sklearn + R)
+- AI Assistant with bring-your-own-key LLM, MCP server with CSV export + vector search
 
 ### v1.0
 - Initial release: GoldShield EA for XAUUSD H1
 - PostgreSQL + TimescaleDB + pgvector via Docker Compose
-- Data collection from Twelve Data API
 
 ---
 
