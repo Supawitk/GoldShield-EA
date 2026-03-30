@@ -9,10 +9,8 @@ CREATE TABLE IF NOT EXISTS candles (
     close       DOUBLE PRECISION NOT NULL,
     volume      DOUBLE PRECISION DEFAULT 0,
     symbol      TEXT NOT NULL DEFAULT 'XAUUSD',
-    timeframe   TEXT NOT NULL DEFAULT 'H1'
+    timeframe   TEXT NOT NULL DEFAULT 'H1',
+    UNIQUE (time, symbol, timeframe)
 );
 
 SELECT create_hypertable('candles', 'time', if_not_exists => TRUE);
-
-CREATE INDEX IF NOT EXISTS idx_candles_symbol_tf
-    ON candles (symbol, timeframe, time DESC);

@@ -8,3 +8,7 @@ venv/
 *.ex4
 *.log
 .DS_Store
+snapshots/*.json
+ml/candles_export.csv
+ml/results.json
+ml/results_r.json

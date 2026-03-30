@@ -74,7 +74,7 @@ def get_trade_stats(days: int = 30) -> str:
             ROUND(SUM(pnl)::numeric, 2)                    AS net_pnl,
             ROUND(AVG(duration_mins)::numeric, 0)           AS avg_duration_mins
         FROM trades
-        WHERE time > NOW() - INTERVAL '%s days'
+        WHERE time > NOW() - INTERVAL '1 day' * %s
     """, (days,))
     return json.dumps(rows, indent=2)
 

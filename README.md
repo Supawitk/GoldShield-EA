@@ -21,6 +21,9 @@
   <img src="https://img.shields.io/badge/pgvector-enabled-8B5CF6?style=flat-square" alt="pgvector"/>
   <img src="https://img.shields.io/badge/MCP-compatible-FF6B35?style=flat-square" alt="MCP"/>
   <img src="https://img.shields.io/badge/Docker-ready-2496ED?style=flat-square&logo=docker&logoColor=white" alt="Docker"/>
+  <img src="https://img.shields.io/badge/Streamlit-dashboard-FF4B4B?style=flat-square&logo=streamlit&logoColor=white" alt="Streamlit"/>
+  <img src="https://img.shields.io/badge/scikit--learn-ML-F7931E?style=flat-square&logo=scikitlearn&logoColor=white" alt="sklearn"/>
+  <img src="https://img.shields.io/badge/R-forecast-276DC3?style=flat-square&logo=r&logoColor=white" alt="R"/>
 </p>
 
 ---
@@ -29,74 +32,100 @@
 
 GoldShield EA is a safety-first automated trading system for **XAUUSD (Gold)** on MetaTrader 5, paired with a full data pipeline that stores trades and market data in PostgreSQL — ready to connect to any AI via the **Model Context Protocol (MCP)**.
 
-> **The EA trades. The database remembers. The AI learns.**
+> **The EA trades. The database remembers. You bring your own AI.**
 
-```
-┌─────────────┐     ┌──────────────────────────┐     ┌─────────────┐
-│  MetaTrader  │────▶│  PostgreSQL               │────▶│  MCP Server │
-│  5 Terminal  │     │  TimescaleDB + pgvector   │     │  (Python)   │
-│              │     │                           │     │             │
-│  GoldShield  │     │  candles ── trades        │     │  Tools:     │
-│  EA.mq5      │     │  parameters ── embeddings │     │  query      │
-└─────────────┘     └──────────────────────────┘     │  analyse    │
-                                                      │  suggest    │
-                             ┌─────────────────┐      └──────┬──────┘
-                             │  Data Collector  │             │
-                             │  (Twelve Data /  │             ▼
-                             │   MetaAPI)       │      ┌─────────────┐
-                             └─────────────────┘      │  Claude /   │
-                                                      │  Any AI     │
-                                                      └─────────────┘
-```
+<p align="center">
+  <img src="assets/architecture.png" alt="System Architecture" width="100%"/>
+</p>
 
 ---
 
-## Trading Strategy
+## Features
 
-| Component | Details |
-|-----------|---------|
-| **Entry Signal** | EMA 50/200 crossover + price confirmation |
-| **Filter** | RSI 14 must be between 30–70 (no extremes) |
-| **Stop Loss** | 1.5x ATR below/above entry |
-| **Take Profit** | 1.0x ATR target |
-| **Trailing Stop** | 1.0x ATR, tightens only in profit |
-| **Position Sizing** | ATR-based, risking 1% of balance per trade |
+<table>
+<tr>
+<td width="50%">
 
-### Safety Guards
+### Trading Engine
+- EMA 50/200 crossover with RSI filter
+- ATR-based dynamic SL/TP/trailing stop
+- Daily loss limit, spread filter, cooldown
+- Position sizing by risk percentage
 
-```
- Daily loss limit ─── 3% max drawdown per day, then stops
- Spread filter ────── Skips if spread > 50 points
- Cooldown ─────────── 5-bar minimum between trades
- Trading hours ────── 02:00 – 21:00 server time only
- Max positions ────── 1 open position at a time
-```
+</td>
+<td width="50%">
+
+### Data Pipeline
+- PostgreSQL + TimescaleDB + pgvector
+- Multi-timeframe candle storage (M1 to W1)
+- Trade journal with full P&L tracking
+- Vector embeddings for pattern matching
+
+</td>
+</tr>
+<tr>
+<td>
+
+### Dashboard (Streamlit)
+- Parameter adjustment UI
+- Candlestick charts with Plotly
+- Trade journal with cumulative P&L
+- Snapshot & compare functionality
+
+</td>
+<td>
+
+### AI & ML Integration
+- MCP server with 6 tools for any AI
+- Bring your own LLM (Claude, OpenAI, Gemini, Ollama, local)
+- sklearn models (RF, GBM, SVM, KNN, Logistic)
+- R integration (ARIMA, ETS, randomForest)
+
+</td>
+</tr>
+</table>
+
+---
+
+## Architecture
+
+<p align="center">
+  <img src="assets/dataflow.png" alt="Data Flow Pipeline" width="70%"/>
+</p>
 
 ---
 
 ## Project Structure
 
 ```
-EA-v1.0/
-├── GoldShield_EA.mq5              # MT5 Expert Advisor source
-├── docker-compose.yml              # One-command database setup
-├── .env.example                    # Configuration template
+GoldShield-EA/
+├── GoldShield_EA.mq5               # MT5 Expert Advisor source
+├── docker-compose.yml               # One-command database setup
+├── .env.example                     # Configuration template
 │
 ├── db/migrations/
-│   ├── 001_extensions.sql          # TimescaleDB + pgvector
-│   ├── 002_candles.sql             # OHLCV hypertable
-│   ├── 003_trades.sql              # Trade journal hypertable
-│   └── 004_parameters.sql          # EA param sets + embeddings
+│   ├── 001_extensions.sql           # TimescaleDB + pgvector
+│   ├── 002_candles.sql              # OHLCV hypertable (unique constraint)
+│   ├── 003_trades.sql               # Trade journal hypertable
+│   └── 004_parameters.sql           # EA configs + vector embeddings
 │
 ├── scripts/
-│   ├── requirements.txt
-│   ├── collect_data.py             # Fetch XAUUSD candles → DB
-│   └── backtest_logger.py          # MT5 report → DB
+│   ├── collect_data.py              # Multi-TF candle fetcher (8 timeframes)
+│   └── backtest_logger.py           # MT5 report parser → DB
 │
-└── mcp-server/
-    ├── requirements.txt
-    ├── server.py                   # MCP server (6 tools)
-    └── claude_mcp_config.example.json
+├── dashboard/
+│   └── app.py                       # Streamlit UI (6 pages)
+│
+├── ml/
+│   ├── train_model.py               # Python ML training (5 models)
+│   └── train.R                      # R forecasting (ARIMA, ETS, RF)
+│
+├── mcp-server/
+│   ├── server.py                    # MCP server (6 tools)
+│   └── claude_mcp_config.example.json
+│
+├── snapshots/                       # Point-in-time state captures
+└── assets/                          # Diagram PNGs
 ```
 
 ---
@@ -105,55 +134,96 @@ EA-v1.0/
 
 ### Prerequisites
 
-- [Docker](https://docs.docker.com/get-docker/) & Docker Compose
-- [Python 3.10+](https://www.python.org/)
-- [MetaTrader 5](https://www.metatrader5.com/) (for running the EA)
+| Tool | Required | Purpose |
+|------|----------|---------|
+| [Docker](https://docs.docker.com/get-docker/) | Yes | Database |
+| [Python 3.10+](https://www.python.org/) | Yes | Scripts, dashboard, MCP |
+| [MetaTrader 5](https://www.metatrader5.com/) | For live trading | EA execution |
+| [R](https://www.r-project.org/) | Optional | R-based ML models |
 
 ### 1. Start the Database
 
 ```bash
+git clone https://github.com/Supawitk/GoldShield-EA.git
+cd GoldShield-EA
+
 cp .env.example .env
-# Edit .env with your API key (optional for data collection)
+# Edit .env with your settings
 
 docker compose up -d
 ```
 
-That's it — PostgreSQL with TimescaleDB and pgvector is running, all tables created.
+PostgreSQL is now running with TimescaleDB + pgvector, all tables created automatically.
 
 ### 2. Collect Market Data
 
 ```bash
-cd scripts
-pip install -r requirements.txt
+pip install -r scripts/requirements.txt
 
-# Add your free Twelve Data API key to .env first
-python collect_data.py              # latest 500 candles
-python collect_data.py --days 90    # last 90 days
+# Add your Twelve Data API key to .env (free: https://twelvedata.com)
+python scripts/collect_data.py                          # H1, 500 bars
+python scripts/collect_data.py --timeframe 15min        # 15-min bars
+python scripts/collect_data.py --all-timeframes         # all 8 timeframes
+python scripts/collect_data.py --days 90 --tf 4h        # 4H, 90 days
 ```
 
-### 3. Load the EA in MetaTrader 5
+**Supported timeframes:** `1min` `5min` `15min` `30min` `1h` `4h` `1day` `1week`
 
-1. Copy `GoldShield_EA.mq5` to your MT5 `Experts` folder
-2. Compile it in MetaEditor
-3. Attach to an **XAUUSD H1** chart (use a **demo account** first)
-4. Enable **AutoTrading**
-
-### 4. Log Backtest Results
-
-After running a backtest in MT5's Strategy Tester, export the HTML report:
+### 3. Launch the Dashboard
 
 ```bash
-python scripts/backtest_logger.py path/to/report.html --label "v1-default"
+pip install -r dashboard/requirements.txt
+streamlit run dashboard/app.py
+```
+
+<table>
+<tr>
+<td><strong>EA Parameters</strong> — adjust all EA inputs, save to DB</td>
+<td><strong>Market Data</strong> — candlestick charts, multi-timeframe</td>
+</tr>
+<tr>
+<td><strong>Trade Journal</strong> — P&L tracking, cumulative equity curve</td>
+<td><strong>ML Models</strong> — train sklearn/R models on your data</td>
+</tr>
+<tr>
+<td><strong>AI Assistant</strong> — connect any LLM, analyse trades</td>
+<td><strong>Snapshots</strong> — save & compare EA states</td>
+</tr>
+</table>
+
+### 4. Train ML Models
+
+#### Python (scikit-learn)
+
+```bash
+pip install -r ml/requirements.txt
+
+python ml/train_model.py                              # Random Forest
+python ml/train_model.py --model gradient_boosting    # Gradient Boosting
+python ml/train_model.py --model svm                  # SVM
+python ml/train_model.py --model knn                  # K-Nearest Neighbors
+python ml/train_model.py --model logistic             # Logistic Regression
+python ml/train_model.py --export-r                   # + export CSV for R
+```
+
+#### R (forecast / randomForest)
+
+```bash
+# Prerequisites: install.packages(c("forecast", "randomForest", "caret", "jsonlite"))
+
+python ml/train_model.py --export-r                   # export data first
+Rscript ml/train.R                                    # auto.arima
+Rscript ml/train.R ets                                # exponential smoothing
+Rscript ml/train.R randomForest                       # random forest
 ```
 
 ### 5. Connect AI via MCP
 
 ```bash
-cd mcp-server
-pip install -r requirements.txt
+pip install -r mcp-server/requirements.txt
 ```
 
-Add to your Claude Desktop config (`~/Library/Application Support/Claude/claude_desktop_config.json`):
+Add to your Claude Desktop config:
 
 ```json
 {
@@ -161,13 +231,25 @@ Add to your Claude Desktop config (`~/Library/Application Support/Claude/claude_
     "goldshield": {
       "command": "python",
       "args": ["mcp-server/server.py"],
-      "cwd": "/absolute/path/to/EA-v1.0"
+      "cwd": "/absolute/path/to/GoldShield-EA"
     }
   }
 }
 ```
 
-Now Claude can query your trades, compare parameter sets, and suggest optimisations.
+### 6. Connect Any LLM (via Dashboard)
+
+The AI Assistant page supports **bring-your-own-key** for multiple providers:
+
+| Provider | Setup | Local? |
+|----------|-------|--------|
+| **Anthropic (Claude)** | Paste your `sk-ant-...` key | No |
+| **OpenAI** | Paste your `sk-...` key | No |
+| **Google Gemini** | Paste your API key | No |
+| **Ollama** | Just run Ollama locally | Yes |
+| **OpenAI-Compatible** | Any local/custom endpoint | Yes |
+
+No API keys are stored or committed. Everything stays on your machine.
 
 ---
 
@@ -179,7 +261,7 @@ Now Claude can query your trades, compare parameter sets, and suggest optimisati
 | `get_trade_stats` | Win-rate, profit factor, P&L over N days |
 | `get_candles` | Recent XAUUSD H1 OHLCV data |
 | `compare_parameter_sets` | Rank EA configs by performance |
-| `suggest_parameters` | Best-performing config as a starting point |
+| `suggest_parameters` | Best-performing config as starting point |
 | `run_sql` | Run any read-only SQL query |
 
 ---
@@ -199,39 +281,7 @@ Now Claude can query your trades, compare parameter sets, and suggest optimisati
 | `DailyLossLimitPercent` | 3.0% | Daily drawdown limit |
 | `MinBarsBetweenTrades` | 5 | Cooldown between entries |
 
----
-
-## Data Flow
-
-```
-  Market Data API                MT5 Strategy Tester
-  (Twelve Data)                  (HTML Reports)
-       │                              │
-       ▼                              ▼
-  collect_data.py              backtest_logger.py
-       │                              │
-       ▼                              ▼
-  ┌────────────────────────────────────────┐
-  │          PostgreSQL 16                 │
-  │  ┌──────────┐  ┌──────────────────┐   │
-  │  │TimescaleDB│  │    pgvector      │   │
-  │  │          │  │                  │   │
-  │  │ candles  │  │ market_embeddings│   │
-  │  │ trades   │  │ (128-dim vectors)│   │
-  │  └──────────┘  └──────────────────┘   │
-  │                                        │
-  │  parameter_sets (configs + metrics)    │
-  └────────────────────┬───────────────────┘
-                       │
-                       ▼
-                  MCP Server
-                       │
-                       ▼
-               Claude / Any AI
-          "Analyse my last 50 trades"
-          "Which params had best Sharpe?"
-          "Suggest new SL multiplier"
-```
+All parameters are adjustable via the **Dashboard UI** or directly in MT5.
 
 ---
 
@@ -239,7 +289,7 @@ Now Claude can query your trades, compare parameter sets, and suggest optimisati
 
 | Provider | Free Tier | Best For |
 |----------|-----------|----------|
-| [Twelve Data](https://twelvedata.com) | 800 req/day | Historical candles (used in `collect_data.py`) |
+| [Twelve Data](https://twelvedata.com) | 800 req/day | Historical candles (built-in support) |
 | [MetaAPI](https://metaapi.cloud) | Free tier | Real-time MT5 bridge |
 | [OANDA](https://developer.oanda.com) | Free demo | Professional forex data |
 | [Polygon.io](https://polygon.io) | Free tier | US-focused, some forex |
@@ -253,5 +303,5 @@ Now Claude can query your trades, compare parameter sets, and suggest optimisati
 ---
 
 <p align="center">
-  <sub>Built with MQL5 + PostgreSQL + TimescaleDB + pgvector + MCP</sub>
+  <sub>Built with MQL5 + PostgreSQL + TimescaleDB + pgvector + MCP + Streamlit + scikit-learn + R</sub>
 </p>
